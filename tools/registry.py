@@ -5,26 +5,9 @@ from models.domain import Lead, Contacts, Socials
 from services.search_service import DuckDuckGoSearchProvider
 from services.scraper_service import WebsiteResearchService
 from services.business_profile_service import DuckDuckGoBusinessProfileProvider
-
-
-class IResearchTool(ABC):
-    """Abstract interface defining the execution contract for all Research Agent tools."""
-
-    @property
-    @abstractmethod
-    def name(self) -> str:
-        """Standardized unique identifier of the tool."""
-        pass
-
-    @abstractmethod
-    def execute(self, lead: Lead) -> Tuple[Lead, str]:
-        """
-        Execute the research tool on the current Lead context.
-        
-        Returns:
-            Tuple[Lead, str]: The updated Lead model and a user-facing trace summary string.
-        """
-        pass
+# IResearchTool lives in tools.base to prevent circular imports.
+# Re-export it here so existing importers (orchestrator, tests) need not change.
+from tools.base import IResearchTool  # noqa: F401
 
 
 class SearchTool(IResearchTool):
@@ -191,6 +174,9 @@ class ToolRegistry:
         self.register(SearchTool())
         self.register(WebsiteTool())
         self.register(BusinessProfileTool())
+        # Capability #4 – Intelligent Contact Discovery
+        from tools.contact_discovery import ContactDiscoveryTool
+        self.register(ContactDiscoveryTool())
         self.register(InstagramTool())
         self.register(FacebookTool())
         self.register(LinkedInTool())

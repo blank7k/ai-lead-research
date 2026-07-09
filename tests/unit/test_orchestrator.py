@@ -29,24 +29,20 @@ def test_decision_engine_sequence():
     lead.website = "https://test.com"
     assert DecisionEngine.get_next_tool(lead) == "website_tool"
 
-    # Record that website_tool has run
     lead.execution_trace.append("website_tool")
-    # Now it checks phone, address, or maps missing -> business_profile_tool
+    # 3. Phone, address, or maps missing -> business_profile_tool
     assert DecisionEngine.get_next_tool(lead) == "business_profile_tool"
 
-    # Record that business_profile_tool has run
     lead.execution_trace.append("business_profile_tool")
-    # Now it checks email missing -> instagram_tool
-    assert DecisionEngine.get_next_tool(lead) == "instagram_tool"
+    # 4. Email or phone STILL missing -> contact_discovery_tool (Capability #4)
+    assert DecisionEngine.get_next_tool(lead) == "contact_discovery_tool"
 
-    # Record that instagram_tool has run
-    lead.execution_trace.append("instagram_tool")
-    # Now it checks founder missing -> linkedin_tool
+    lead.execution_trace.append("contact_discovery_tool")
+    # 5. Founder still missing -> linkedin_tool
     assert DecisionEngine.get_next_tool(lead) == "linkedin_tool"
 
-    # Record that linkedin_tool has run
     lead.execution_trace.append("linkedin_tool")
-    # Gaps are covered or tools exhausted -> None
+    # All tools exhausted -> None
     assert DecisionEngine.get_next_tool(lead) is None
 
 
