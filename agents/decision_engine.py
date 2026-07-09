@@ -35,11 +35,11 @@ class DecisionEngine:
                 logger.info("[DecisionEngine] Rule match: Website exists but contact info incomplete -> website_tool")
                 return "website_tool"
 
-        # Rule 3: Phone is missing
-        if "phones" in missing:
-            if "google_business_tool" not in trace:
-                logger.info("[DecisionEngine] Rule match: Phone missing -> google_business_tool")
-                return "google_business_tool"
+        # Rule 3: Phone, Address, or Google Maps URL is missing
+        if "phones" in missing or "addresses" in missing or "google_maps" in missing:
+            if "business_profile_tool" not in trace:
+                logger.info("[DecisionEngine] Rule match: Phone, Address, or Maps missing -> business_profile_tool")
+                return "business_profile_tool"
 
         # Rule 4: Email is still missing
         if "emails" in missing:

@@ -16,6 +16,7 @@ class Socials(BaseModel):
     linkedin: Optional[str] = Field(None, description="LinkedIn company page URL.")
     facebook: Optional[str] = Field(None, description="Facebook page URL.")
     twitter: Optional[str] = Field(None, description="Twitter / X profile URL.")
+    google_maps: Optional[str] = Field(None, description="Google Business / Google Maps profile URL.")
 
 
 class Lead(BaseModel):
@@ -27,6 +28,7 @@ class Lead(BaseModel):
     
     contacts: Contacts = Field(default_factory=Contacts, description="Grouped business contacts.")
     socials: Socials = Field(default_factory=Socials, description="Grouped social endpoints.")
+    enrichments: dict = Field(default_factory=dict, description="Metadata like rating, reviews count, hours.")
     
     confidence_score: float = Field(0.0, description="Completeness score (0.0 to 1.0).")
     sources: List[str] = Field(default_factory=list, description="Sources crawled during research.")
@@ -49,6 +51,10 @@ class Lead(BaseModel):
             missing.append("emails")
         if not self.contacts.phones:
             missing.append("phones")
+        if not self.contacts.addresses:
+            missing.append("addresses")
         if not self.founder_name:
             missing.append("founder")
+        if not self.socials.google_maps:
+            missing.append("google_maps")
         return missing

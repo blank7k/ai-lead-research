@@ -4,6 +4,7 @@ from loguru import logger
 from models.domain import Lead, Contacts, Socials
 from services.search_service import DuckDuckGoSearchProvider
 from services.scraper_service import WebsiteResearchService
+from services.business_profile_service import DuckDuckGoBusinessProfileProvider
 
 
 class IResearchTool(ABC):
@@ -93,16 +94,56 @@ class WebsiteTool(IResearchTool):
         return lead, f"Website Tool\n{email_status}\n{phone_status}"
 
 
-class GoogleBusinessTool(IResearchTool):
-    """Stub tool representing Google Business Profile harvesting."""
+class BusinessProfileTool(IResearchTool):
+    """Concrete tool executing search-based extraction of business profiles / Maps listings."""
 
     @property
     def name(self) -> str:
-        return "google_business_tool"
+        return "business_profile_tool"
 
     def execute(self, lead: Lead) -> Tuple[Lead, str]:
-        logger.info("[GoogleBusinessTool] Stub executed.")
-        return lead, "Google Business Tool\n(Not Implemented)"
+        logger.info(f"[BusinessProfileTool] Querying business profile for brand '{lead.brand_name}'")
+        provider = DuckDuckGoBusinessProfileProvider()
+        result = provider.fetch_profile(lead.brand_name)
+        
+        updated_any = False
+        
+        # 1. Merge phone number
+        phone_val = result.get("phone")
+        if phone_val and phone_val not in lead.contacts.phones:
+            lead.contacts.phones.append(phone_val)
+            updated_any = True
+            
+        # 2. Merge address
+        addr_val = result.get("address")
+        if addr_val and addr_val not in lead.contacts.addresses:
+            lead.contacts.addresses.append(addr_val)
+            updated_any = True
+            
+        # 3. Merge Google Maps url
+        maps_url = result.get("google_maps_url")
+        if maps_url and not lead.socials.google_maps:
+            lead.socials.google_maps = maps_url
+            updated_any = True
+            
+        # 4. Merge enrichments
+        for key in ["rating", "review_count", "opening_hours"]:
+            val = result.get(key)
+            if val is not None and lead.enrichments.get(key) != val:
+                lead.enrichments[key] = val
+                updated_any = True
+                
+        # Only increase confidence score when new info was found
+        if updated_any:
+            # cap at 1.0
+            lead.confidence_score = min(1.0, lead.confidence_score + 0.15)
+            
+        # Compile trace details
+        phone_status = "✓ Phone Found" if phone_val else "✗ Phone Missing"
+        addr_status = "✓ Address Found" if addr_val else "✗ Address Missing"
+        maps_status = "✓ Maps Link Found" if maps_url else "✗ Maps Link Missing"
+        
+        return lead, f"Business Profile Tool\n{phone_status}\n{addr_status}\n{maps_status}"
 
 
 class InstagramTool(IResearchTool):
@@ -149,7 +190,7 @@ class ToolRegistry:
         # Pre-register built-in tools
         self.register(SearchTool())
         self.register(WebsiteTool())
-        self.register(GoogleBusinessTool())
+        self.register(BusinessProfileTool())
         self.register(InstagramTool())
         self.register(FacebookTool())
         self.register(LinkedInTool())

@@ -31,11 +31,11 @@ def test_decision_engine_sequence():
 
     # Record that website_tool has run
     lead.execution_trace.append("website_tool")
-    # Now it checks phone missing -> google_business_tool
-    assert DecisionEngine.get_next_tool(lead) == "google_business_tool"
+    # Now it checks phone, address, or maps missing -> business_profile_tool
+    assert DecisionEngine.get_next_tool(lead) == "business_profile_tool"
 
-    # Record that google_business_tool has run
-    lead.execution_trace.append("google_business_tool")
+    # Record that business_profile_tool has run
+    lead.execution_trace.append("business_profile_tool")
     # Now it checks email missing -> instagram_tool
     assert DecisionEngine.get_next_tool(lead) == "instagram_tool"
 
@@ -54,10 +54,10 @@ def test_stub_tool_executions():
     """Verify that stub tools return correct stubs and do not modify the lead."""
     lead = Lead(brand_name="Zara")
     
-    # 1. Google Business Stub
-    google_tool = tool_registry.get_tool("google_business_tool")
-    updated_lead, trace = google_tool.execute(lead)
-    assert "Google Business Tool" in trace
+    # 1. Instagram Stub
+    instagram_tool = tool_registry.get_tool("instagram_tool")
+    updated_lead, trace = instagram_tool.execute(lead)
+    assert "Instagram Tool" in trace
     assert "(Not Implemented)" in trace
     
     # 2. LinkedIn Stub

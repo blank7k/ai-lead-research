@@ -30,8 +30,8 @@ def research_agent_node(state: AgentState) -> dict:
             reason = "Website Missing"
         elif ("emails" in missing or "phones" in missing) and next_tool_key == "website_tool":
             reason = "Contact Info Missing"
-        elif "phones" in missing and next_tool_key == "google_business_tool":
-            reason = "Phone Missing"
+        elif ("phones" in missing or "addresses" in missing or "google_maps" in missing) and next_tool_key == "business_profile_tool":
+            reason = "Phone or Address Missing"
         elif "emails" in missing and next_tool_key == "instagram_tool":
             reason = "Email Still Missing"
         elif "founder" in missing and next_tool_key == "linkedin_tool":

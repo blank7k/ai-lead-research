@@ -43,4 +43,12 @@ def test_missing_fields_property():
     # 5. Add founder
     lead.founder_name = "Amancio Ortega"
     missing = lead.missing_fields
+    assert "founder" not in missing
+    assert "addresses" in missing
+    assert "google_maps" in missing
+
+    # 6. Add address and maps
+    lead.contacts.addresses = ["1 Zara Way"]
+    lead.socials.google_maps = "https://maps.google.com/zara"
+    missing = lead.missing_fields
     assert len(missing) == 0
