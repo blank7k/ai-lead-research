@@ -35,7 +35,7 @@ class DuckDuckGoSearchService(ISearchService):
                 results = ddgs.text(query, backend="lite", max_results=limit)
                 if not results:
                     logger.warning(f"DuckDuckGo returned empty results for: '{query}'")
-                    return []
+                    raise Exception("Empty results returned, possible temporary rate limit or block")
                 
                 # Standardize return fields: link/url -> href, snippet/body -> body
                 formatted_results = []
@@ -65,13 +65,19 @@ class DuckDuckGoSearchProvider(ISearchProvider):
         """
         logger.info(f"Initiating brand search research for: '{brand_name}'")
         
+        # Clean brand name of quotes which trigger search anomalies / rate-limiting blocks
+        clean_name = brand_name.replace("'", "").replace('"', "").strip()
+        
         # Build search query optimized to surface home page and social links
-        query = f"{brand_name} clothing fashion brand website"
+        query = f"{clean_name} clothing fashion brand website"
         
         # Fetch search results with slightly higher limit to catch social accounts on page 1
         raw_hits = []
         try:
             raw_hits = self.search_service.search(query, max_results=15)
+            if not raw_hits:
+                logger.warning(f"Primary search for '{brand_name}' returned zero hits. Retrying with fallback query...")
+                raw_hits = self.search_service.search(f"{clean_name} clothing", max_results=10)
         except Exception as e:
             logger.error(f"Search provider failed to execute search for '{brand_name}': {e}")
             # Return empty result shell instead of crashing
