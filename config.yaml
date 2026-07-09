@@ -1,0 +1,7 @@
+# Lead Research AI - Batch Processor Configuration Settings
+workers: 4
+batch_size: 20
+timeout: 60
+retry: 3
+delay: 2
+provider: duckduckgo

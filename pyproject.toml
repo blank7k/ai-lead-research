@@ -18,7 +18,15 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "supabase>=2.31.0",
     "trafilatura>=2.1.0",
+    "streamlit>=1.41.0",
 ]
+
+[project.scripts]
+leadresearch = "batch_main:cli_entrypoint"
+
+[tool.setuptools]
+packages = ["agents", "batch", "config", "models", "prompts", "schemas", "services"]
+py-modules = ["batch_main", "main"]
 
 [dependency-groups]
 dev = [

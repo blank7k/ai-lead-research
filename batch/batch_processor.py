@@ -1,6 +1,9 @@
 import os
 import time
 import sys
+import json
+import datetime
+import subprocess
 import concurrent.futures
 from typing import List, Optional
 from loguru import logger
@@ -12,6 +15,7 @@ from batch.checkpoint_manager import CheckpointManager
 from batch.csv_loader import CSVLoader
 from batch.csv_exporter import CSVExporter
 from batch.benchmark import BenchmarkCollector
+from batch.config_parser import ConfigParser
 from services.sheets_service import GoogleSheetsService
 
 
@@ -30,67 +34,33 @@ class BatchProcessor:
 
     def __init__(
         self,
-        workers: int = 3,
-        delay_between_batches: float = 2.0,
-        timeout: float = 120.0,
+        workers: Optional[int] = None,
+        delay_between_batches: Optional[float] = None,
+        timeout: Optional[float] = None,
         checkpoint_filepath: str = "data/checkpoint.json",
         results_filepath: str = "data/results.csv"
     ) -> None:
-        self.workers = workers
-        self.delay_between_batches = delay_between_batches
-        self.timeout = timeout
+        # Load configuration file
+        config = ConfigParser.load_config("config.yaml")
+        
+        self.workers = workers if workers is not None else config.get("workers", 3)
+        self.delay_between_batches = delay_between_batches if delay_between_batches is not None else config.get("delay", 2.0)
+        self.timeout = timeout if timeout is not None else config.get("timeout", 120.0)
+        self.batch_size = config.get("batch_size", 20)
         
         self.checkpoint_manager = CheckpointManager(checkpoint_filepath)
         self.csv_exporter = CSVExporter()
         self.sheets_service = GoogleSheetsService()
         self.results_filepath = results_filepath
-        
-        self._setup_tool_profiling()
-
-    def _setup_tool_profiling(self) -> None:
-        """
-        Dynamically wraps IResearchTool.execute calls at runtime.
-        Measures the precise duration of each tool's run without modifying core frozen classes.
-        """
-        from tools.registry import tool_registry
-        for tool_name in tool_registry.list_tools():
-            tool = tool_registry.get_tool(tool_name)
-            
-            # Avoid wrapping a tool more than once if initialized repeatedly
-            if not hasattr(tool, "_original_execute"):
-                tool._original_execute = tool.execute
-                
-                # Create scoped wrapper preserving closure values
-                def make_wrapper(t_name, original_exec):
-                    def wrapper(lead: Lead):
-                        logger.info(f"Start tool execution: '{t_name}' for brand: '{lead.brand_name}'")
-                        start = time.time()
-                        try:
-                            updated_lead, trace = original_exec(lead)
-                            return updated_lead, trace
-                        except Exception as e:
-                            logger.error(f"Tool '{t_name}' execution failed for brand '{lead.brand_name}': {e}")
-                            raise e
-                        finally:
-                            elapsed = time.time() - start
-                            lead.enrichments.setdefault("tool_durations", {})[t_name] = elapsed
-                            logger.info(f"Tool execution complete: '{t_name}' for brand: '{lead.brand_name}' | Runtime: {elapsed:.2f}s")
-                    return wrapper
-                    
-                tool.execute = make_wrapper(tool.name, tool._original_execute)
-                logger.debug(f"Applied runtime profiling wrapper to tool: '{tool.name}'")
 
     def _run_brand_with_timeout(self, brand_name: str) -> Lead:
         """Runs the LangGraph research graph for a single brand within a strict timeout block."""
-        # 1. Instantiate state
         lead = Lead(brand_name=brand_name)
         state = AgentState(lead=lead)
         
-        # 2. Define target function to run in inner executor
         def invoke_graph():
             return research_graph.invoke(state)
 
-        # 3. Execute with thread timeout guard
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as inner_executor:
             future = inner_executor.submit(invoke_graph)
             try:
@@ -119,7 +89,6 @@ class BatchProcessor:
             try:
                 self.sheets_service.append_leads(None, [lead])
             except Exception as se:
-                # Log Sheets error, do NOT fail the batch run
                 logger.error(f"Failed to append brand '{brand_name}' to Google Sheets: {se}")
                 
             logger.info(f"Completed research run for brand: '{brand_name}' | Runtime: {elapsed:.2f}s | Confidence: {lead.confidence_score:.2f}")
@@ -127,8 +96,52 @@ class BatchProcessor:
             
         except Exception as e:
             logger.error(f"Failure processing brand '{brand_name}': {e}")
-            # Return None to signal a failed run
             return None
+
+    def _save_benchmark_history(self, metrics: dict) -> None:
+        """Appends metrics to data/benchmark_history.json for Streamlit dashboard historical analysis."""
+        history_path = "data/benchmark_history.json"
+        history = []
+        
+        if os.path.exists(history_path):
+            try:
+                with open(history_path, "r", encoding="utf-8") as fh:
+                    history = json.load(fh)
+            except Exception:
+                pass
+                
+        # Resolve current git commit hash
+        commit = "unknown"
+        try:
+            commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+        except Exception:
+            pass
+            
+        entry = {
+            "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "commit": commit,
+            "processed": metrics["processed"],
+            "website": metrics["website_coverage"],
+            "email": metrics["email_coverage"],
+            "phone": metrics["phone_coverage"],
+            "address": metrics["address_coverage"],
+            "founder": metrics["founder_coverage"],
+            "linkedin": metrics["linkedin_coverage"],
+            "bp": metrics["bp_coverage"],
+            "avg_runtime": metrics["avg_runtime"],
+            "total_runtime": metrics["total_runtime"]
+        }
+        history.append(entry)
+        
+        try:
+            dir_name = os.path.dirname(history_path)
+            if dir_name:
+                os.makedirs(dir_name, exist_ok=True)
+            with open(history_path, "w", encoding="utf-8") as fh:
+                json.dump(history, fh, indent=4)
+            logger.info(f"Appended run coverage metrics to benchmark history: '{history_path}'")
+        except Exception as he:
+            logger.error(f"Failed to write benchmark history file: {he}")
 
     def run_batch(self, input_csv_path: str) -> dict:
         """
@@ -138,13 +151,11 @@ class BatchProcessor:
         logger.info("Initializing Batch Processing Session.")
         start_time = time.time()
         
-        # 1. Load target brands
         all_brands = CSVLoader.load_brands(input_csv_path)
         if not all_brands:
             logger.warning("No brands found to process.")
             return {}
             
-        # 2. Check resume history
         completed_brands = self.checkpoint_manager.load_completed()
         
         remaining_brands = [b for b in all_brands if b not in completed_brands]
@@ -155,7 +166,6 @@ class BatchProcessor:
         leads: List[Lead] = []
         failures_count = 0
         
-        # 3. Concurrently run target brands in a thread pool
         if remaining_brands:
             # We can group remaining brands into batch sizes to implement batch throttling delays
             batch_size = self.workers
@@ -167,7 +177,6 @@ class BatchProcessor:
                     time.sleep(self.delay_between_batches)
                     
                 with concurrent.futures.ThreadPoolExecutor(max_workers=self.workers) as executor:
-                    # Map the execution function across the current batch
                     future_to_brand = {executor.submit(self._process_single_brand, b): b for b in batch_subset}
                     
                     for future in concurrent.futures.as_completed(future_to_brand):
@@ -184,13 +193,14 @@ class BatchProcessor:
                             
         total_runtime = time.time() - start_time
         
-        # 4. Load all leads that have completed across runs to compile the full results export
-        # If we resumed, we want the CSV export to contain all results. For this simple model, 
-        # we export what we processed in this run. If desired, we can merge with past exports.
+        # Export processed leads results to CSV
         self.csv_exporter.export_leads(leads, self.results_filepath)
         
-        # 5. Calculate and output benchmark metrics
+        # Calculate and output benchmark metrics
         metrics = BenchmarkCollector.calculate_metrics(leads, total_runtime, failures_count, skipped_count)
         BenchmarkCollector.print_report(metrics)
+        
+        # Persist metrics to timeline history JSON
+        self._save_benchmark_history(metrics)
         
         return metrics

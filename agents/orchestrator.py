@@ -1,3 +1,5 @@
+import os
+import time
 from typing import Literal
 from loguru import logger
 from langgraph.graph import StateGraph, END
@@ -6,6 +8,11 @@ from schemas.agent_state import AgentState
 from models.domain import Lead
 from agents.decision_engine import DecisionEngine
 from tools.registry import tool_registry
+from tools.executor import ToolExecutor
+
+
+# Instantiate the global ToolExecutor
+tool_executor = ToolExecutor()
 
 
 def research_agent_node(state: AgentState) -> dict:
@@ -48,6 +55,12 @@ def research_agent_node(state: AgentState) -> dict:
         trace_logs.append("Research Complete")
         logs.append("Decision: Research Complete")
         
+        # If complete, log the Finish relative offset to timeline
+        run_start = lead.enrichments.get("run_start_time")
+        if run_start:
+            offset = time.time() - run_start
+            lead.enrichments.setdefault("timeline", []).append(f"{offset:.1f} Finish")
+        
     return {
         "next_tool": next_tool_key,
         "trace_logs": trace_logs,
@@ -57,8 +70,7 @@ def research_agent_node(state: AgentState) -> dict:
 
 def tool_executor_node(state: AgentState) -> dict:
     """
-    Generic tool execution node. Pulls the target tool from the ToolRegistry
-    and executes it, keeping agent code decoupled from concrete tool logic.
+    Generic tool execution node. Delegates tool execution to the central ToolExecutor.
     """
     tool_key = state.next_tool
     if not tool_key:
@@ -70,8 +82,8 @@ def tool_executor_node(state: AgentState) -> dict:
     # 1. Look up tool in registry
     tool_instance = tool_registry.get_tool(tool_key)
     
-    # 2. Execute tool
-    updated_lead, trace_summary = tool_instance.execute(state.lead)
+    # 2. Execute tool using the wrapper ToolExecutor
+    updated_lead, trace_summary = tool_executor.execute(tool_instance, state.lead)
     
     # 3. Add to tool execution trace list (preventing duplicate runs)
     updated_lead.execution_trace.append(tool_key)
@@ -88,6 +100,30 @@ def router(state: AgentState) -> Literal["tool_executor", "end"]:
     if state.next_tool:
         return "tool_executor"
     return "end"
+
+
+def save_graph_visuals(compiled_graph) -> None:
+    """Generates StateGraph representation files in the data/ directory."""
+    try:
+        os.makedirs("data", exist_ok=True)
+        
+        # 1. Save Mermaid string
+        mermaid_code = compiled_graph.get_graph().draw_mermaid()
+        with open("data/graph.mermaid", "w", encoding="utf-8") as f:
+            f.write(mermaid_code)
+        logger.info("Saved StateGraph visual layout: data/graph.mermaid")
+        
+        # 2. Attempt rendering PNG diagram (requires pyppeteer/pygraphviz)
+        try:
+            png_bytes = compiled_graph.get_graph().draw_mermaid_png()
+            with open("data/graph.png", "wb") as f:
+                f.write(png_bytes)
+            logger.info("Saved visual graph image: data/graph.png")
+        except Exception as pe:
+            logger.warning(f"Could not render graph to PNG image: {pe}")
+            
+    except Exception as e:
+        logger.error(f"Failed to generate visual graph drawings: {e}")
 
 
 def build_research_graph() -> StateGraph:
@@ -123,6 +159,10 @@ def build_research_graph() -> StateGraph:
     # Compile
     compiled_graph = workflow.compile()
     logger.info("Agentic LangGraph workflow compiled successfully.")
+    
+    # Export Mermaid diagrams
+    save_graph_visuals(compiled_graph)
+    
     return compiled_graph
 
 

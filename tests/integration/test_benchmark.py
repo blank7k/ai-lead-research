@@ -2,16 +2,30 @@ import os
 import pytest
 from unittest.mock import MagicMock, patch
 from batch.batch_processor import BatchProcessor
+from batch.config_parser import ConfigParser
 from schemas.search_schemas import BrandSearchResult
 from schemas.scraper_schemas import WebsiteResearchResult
+
+
+def test_config_parser():
+    """Verify that ConfigParser correctly loads yaml properties and returns defaults for missing files."""
+    # Test fallback
+    default_config = ConfigParser.load_config("nonexistent_config.yaml")
+    assert default_config["workers"] == 3
+    assert default_config["provider"] == "duckduckgo"
+    
+    # Test valid yaml parsing
+    config = ConfigParser.load_config("config.yaml")
+    assert config["workers"] in [3, 4]
+    assert config["timeout"] in [60, 120]
 
 
 def test_benchmark_coverage_regression(tmp_path):
     """
     Integration and regression test ensuring future changes cannot reduce
     field discovery coverage below required minimum thresholds in CI.
+    Also verifies ToolExecutor duration profiling and timeline offsets.
     """
-    # Isolate test run files to pytest temporary path
     checkpoint_path = str(tmp_path / "test_checkpoint.json")
     results_path = str(tmp_path / "test_results.csv")
     
@@ -66,10 +80,6 @@ def test_benchmark_coverage_regression(tmp_path):
          metrics = processor.run_batch("tests/data/benchmark_brands.csv")
          
          # 3. Assert coverage is above Staff Engineer regression thresholds
-         # Website >= 90%
-         # Email >= 70%
-         # Phone >= 40%
-         # Address >= 60%
          assert metrics["processed"] == 5
          assert metrics["website_coverage"] >= 90.0
          assert metrics["email_coverage"] >= 70.0
@@ -77,6 +87,17 @@ def test_benchmark_coverage_regression(tmp_path):
          assert metrics["address_coverage"] >= 60.0
          assert metrics["failures"] == 0
          
-         # Assert files were successfully created
+         # 4. Verify ToolExecutor timeline and timing profiling
          assert os.path.exists(results_path)
          assert os.path.exists(checkpoint_path)
+         
+         # Load the generated results CSV to check if timing values are saved
+         import csv
+         with open(results_path, "r", encoding="utf-8") as f:
+             reader = csv.DictReader(f)
+             rows = list(reader)
+             assert len(rows) == 5
+             for row in rows:
+                 # Runtime should be a positive float number string
+                 assert float(row["Runtime"]) >= 0.0
+                 assert row["Status"] == "completed"
