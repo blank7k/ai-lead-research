@@ -1,39 +1,54 @@
 from datetime import datetime, timezone
 from typing import List, Optional
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, computed_field
 
 
-class ContactInfo(BaseModel):
-    """Domain model representing the contact information gathered for a brand."""
-    emails: List[str] = Field(default_factory=list, description="List of business email addresses found.")
-    phones: List[str] = Field(default_factory=list, description="List of contact phone numbers found.")
-    instagram_url: Optional[str] = Field(None, description="Instagram profile URL.")
-    linkedin_url: Optional[str] = Field(None, description="LinkedIn company page URL.")
-    twitter_url: Optional[str] = Field(None, description="Twitter / X profile URL.")
-    facebook_url: Optional[str] = Field(None, description="Facebook page URL.")
-    contact_page_url: Optional[str] = Field(None, description="URL of the brand's contact or about page.")
-    physical_address: Optional[str] = Field(None, description="Physical headquarters or store address if found.")
-    raw_sources: List[str] = Field(default_factory=list, description="List of source URLs where contact info was scraped.")
+class Contacts(BaseModel):
+    """Structured contact arrays on a lead."""
+    emails: List[str] = Field(default_factory=list, description="Public email addresses found.")
+    phones: List[str] = Field(default_factory=list, description="Public phone numbers found.")
+    addresses: List[str] = Field(default_factory=list, description="HQ or retail mailing addresses.")
 
 
-class Brand(BaseModel):
-    """Domain model representing a D2C brand to be researched."""
-    id: Optional[str] = Field(None, description="Unique identifier for the brand (e.g. UUID from DB).")
-    name: str = Field(..., description="Name of the D2C fashion brand.")
-    website_url: str = Field(..., description="Main website URL of the brand.")
-    domain: str = Field(..., description="Extracted domain name of the brand (e.g. brand.com).")
-    category: Optional[str] = Field("Fashion/D2C", description="Market category (e.g. apparel, footwear, accessories).")
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+class Socials(BaseModel):
+    """Structured social media handles / profile URLs on a lead."""
+    instagram: Optional[str] = Field(None, description="Instagram profile URL.")
+    linkedin: Optional[str] = Field(None, description="LinkedIn company page URL.")
+    facebook: Optional[str] = Field(None, description="Facebook page URL.")
+    twitter: Optional[str] = Field(None, description="Twitter / X profile URL.")
 
 
 class Lead(BaseModel):
-    """Domain model representing a completed Lead, joining a Brand with its ContactInfo."""
-    brand: Brand
-    contact_info: ContactInfo
-    is_verified: bool = Field(False, description="Flag indicating if the contact details have been verified.")
-    confidence_score: float = Field(0.0, description="Confidence score of research completeness (0.0 to 1.0).")
-    research_notes: Optional[str] = Field(None, description="Internal agent notes or logs about the research process.")
-    synced_to_sheets: bool = Field(False, description="Whether this lead has been exported to Google Sheets.")
-    synced_to_db: bool = Field(False, description="Whether this lead has been saved to Supabase.")
-    last_researched_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    """Refactored Lead domain model holding consolidated target brand data."""
+    brand_name: str = Field(..., description="Name of the brand.")
+    founder_name: Optional[str] = Field(None, description="Name of the brand's founder.")
+    website: Optional[str] = Field(None, description="Official homepage URL.")
+    category: str = Field("Fashion/D2C", description="Market category/vertical.")
+    
+    contacts: Contacts = Field(default_factory=Contacts, description="Grouped business contacts.")
+    socials: Socials = Field(default_factory=Socials, description="Grouped social endpoints.")
+    
+    confidence_score: float = Field(0.0, description="Completeness score (0.0 to 1.0).")
+    sources: List[str] = Field(default_factory=list, description="Sources crawled during research.")
+    execution_trace: List[str] = Field(default_factory=list, description="Chronological trace of tools invoked.")
+    
+    is_verified: bool = Field(False, description="Flag indicating if critical info was validated.")
+    synced_to_sheets: bool = Field(False, description="Whether sync'd with Google Sheets.")
+    synced_to_db: bool = Field(False, description="Whether sync'd with database.")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @computed_field
+    @property
+    def missing_fields(self) -> List[str]:
+        """Dynamically computes missing data points to guide the Research Agent."""
+        missing = []
+        if not self.website or self.website == "unknown":
+            missing.append("website")
+        if not self.contacts.emails:
+            missing.append("emails")
+        if not self.contacts.phones:
+            missing.append("phones")
+        if not self.founder_name:
+            missing.append("founder")
+        return missing
