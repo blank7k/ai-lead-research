@@ -12,3 +12,9 @@ wheels/
 # Local environment settings
 .env
 
+# Runtime / generated outputs
+logs/
+data/results.csv
+data/checkpoint.json
+data/benchmark_history.json
+
